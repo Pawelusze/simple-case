@@ -1,0 +1,17 @@
+name: Simple-Case
+version: '1.0-INDEV'
+main: pl.polardev.scase.CasePlugin
+api-version: '1.21'
+authors: [ Pawelusz ]
+
+commands:
+  admincase:
+    description: Manage crates
+    usage: /admincase {create|edit|delete|setkey|givekey} [args]
+    permission: simplecase.admin
+    tab-complete: true
+
+permissions:
+  simplecase.admin:
+    description: Access to crate administration
+    default: op

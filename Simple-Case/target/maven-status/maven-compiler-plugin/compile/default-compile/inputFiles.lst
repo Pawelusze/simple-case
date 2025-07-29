@@ -1,0 +1,10 @@
+/Users/pawelmalanich/Downloads/Simple-Case/src/main/java/pl/polardev/scase/CasePlugin.java
+/Users/pawelmalanich/Downloads/Simple-Case/src/main/java/pl/polardev/scase/commands/AdminCaseCommand.java
+/Users/pawelmalanich/Downloads/Simple-Case/src/main/java/pl/polardev/scase/guis/CrateAnimationGUI.java
+/Users/pawelmalanich/Downloads/Simple-Case/src/main/java/pl/polardev/scase/guis/CrateEditGUI.java
+/Users/pawelmalanich/Downloads/Simple-Case/src/main/java/pl/polardev/scase/guis/CrateMainGUI.java
+/Users/pawelmalanich/Downloads/Simple-Case/src/main/java/pl/polardev/scase/guis/CrateOpenGUI.java
+/Users/pawelmalanich/Downloads/Simple-Case/src/main/java/pl/polardev/scase/listeners/CrateListener.java
+/Users/pawelmalanich/Downloads/Simple-Case/src/main/java/pl/polardev/scase/listeners/GUIListener.java
+/Users/pawelmalanich/Downloads/Simple-Case/src/main/java/pl/polardev/scase/managers/CrateManager.java
+/Users/pawelmalanich/Downloads/Simple-Case/src/main/java/pl/polardev/scase/models/Crate.java
