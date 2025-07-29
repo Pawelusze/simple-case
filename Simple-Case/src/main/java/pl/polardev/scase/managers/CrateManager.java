@@ -5,9 +5,12 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.block.Block;
 import org.bukkit.scheduler.BukkitTask;
+import org.bukkit.persistence.PersistentDataType;
+import org.bukkit.NamespacedKey;
 import pl.polardev.scase.CasePlugin;
+import pl.polardev.scase.helpers.ItemBuilder;
 import pl.polardev.scase.models.Crate;
-import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.minimessage.MiniMessage;
 
 import java.io.*;
 import java.nio.file.Files;
@@ -22,14 +25,15 @@ public class CrateManager {
     private final Map<String, Crate> crates;
     private final Set<String> pendingSaves;
     private final BukkitTask autoSaveTask;
-    private final Map<String, Long> fileModificationTimes;
+    private final NamespacedKey crateKey;
+    private final MiniMessage mm = MiniMessage.miniMessage();
 
     public CrateManager(CasePlugin plugin) {
         this.plugin = plugin;
         this.dataFolder = plugin.getDataFolder().toPath().resolve("cases");
         this.crates = new ConcurrentHashMap<>();
         this.pendingSaves = ConcurrentHashMap.newKeySet();
-        this.fileModificationTimes = new ConcurrentHashMap<>();
+        this.crateKey = new NamespacedKey(plugin, "crate_name");
 
         try {
             Files.createDirectories(dataFolder);
@@ -46,10 +50,9 @@ public class CrateManager {
     }
 
     public void createCrate(String name, Block block) {
-        ItemStack crateItem = new ItemStack(block.getType());
-        ItemMeta meta = crateItem.getItemMeta();
-        meta.displayName(Component.text("§cCase " + name));
-        crateItem.setItemMeta(meta);
+        ItemStack crateItem = ItemBuilder.of(block.getType())
+            .name("<red>Case " + name)
+            .build();
 
         Crate crate = new Crate(name, crateItem);
         crates.put(name.toLowerCase(), crate);
@@ -59,8 +62,7 @@ public class CrateManager {
         plugin.getServer().getScheduler().runTask(plugin, () -> {
             try {
                 if (block.getState() instanceof org.bukkit.block.TileState tileState) {
-                    org.bukkit.NamespacedKey crateKey = new org.bukkit.NamespacedKey(plugin, "crate_name");
-                    tileState.getPersistentDataContainer().set(crateKey, org.bukkit.persistence.PersistentDataType.STRING, name);
+                    tileState.getPersistentDataContainer().set(crateKey, PersistentDataType.STRING, name);
                     tileState.update();
                 }
             } catch (Exception e) {
@@ -77,12 +79,11 @@ public class CrateManager {
         String lowerName = name.toLowerCase();
         Crate crate = crates.get(lowerName);
         if (crate != null) {
-            plugin.getServer().getScheduler().runTask(plugin, () -> removeAllCrateBlocks(name));
+            plugin.getServer().getScheduler().runTask(plugin, () -> removeCrateBlocks(name));
         }
 
         crates.remove(lowerName);
         pendingSaves.remove(lowerName);
-        fileModificationTimes.remove(lowerName);
 
         CompletableFuture.runAsync(() -> {
             try {
@@ -101,16 +102,14 @@ public class CrateManager {
             Path file = dataFolder.resolve(crateName + ".yml");
             if (!Files.exists(file)) {
                 toRemove.add(crateName);
-                plugin.getLogger().info("Detected deleted crate file: " + crateName + ".yml - removing from memory");
             }
         }
 
         for (String crateName : toRemove) {
             crates.remove(crateName);
             pendingSaves.remove(crateName);
-            fileModificationTimes.remove(crateName);
 
-            plugin.getServer().getScheduler().runTask(plugin, () -> removeAllCrateBlocks(crateName));
+            plugin.getServer().getScheduler().runTask(plugin, () -> removeCrateBlocks(crateName));
         }
     }
 
@@ -134,38 +133,44 @@ public class CrateManager {
         });
     }
 
-    private void removeAllCrateBlocks(String crateName) {
-        org.bukkit.NamespacedKey crateKey = new org.bukkit.NamespacedKey(plugin, "crate_name");
+    private void removeCrateBlocks(String crateName) {
+        Map<String, Set<org.bukkit.Location>> crateLocations = new HashMap<>();
 
-        try {
-            for (org.bukkit.World world : plugin.getServer().getWorlds()) {
-                for (org.bukkit.Chunk chunk : world.getLoadedChunks()) {
-                    try {
-                        for (org.bukkit.block.BlockState state : chunk.getTileEntities()) {
-                            try {
-                                if (state instanceof org.bukkit.block.TileState tileState) {
-                                    String blockCrateName = tileState.getPersistentDataContainer()
-                                        .get(crateKey, org.bukkit.persistence.PersistentDataType.STRING);
+        for (org.bukkit.World world : plugin.getServer().getWorlds()) {
+            crateLocations.put(world.getName(), new HashSet<>());
+        }
 
-                                    if (crateName.equals(blockCrateName)) {
-                                        tileState.getPersistentDataContainer().remove(crateKey);
-                                        tileState.update();
-                                    }
-                                }
-                            } catch (Exception e) {
-                            }
+        for (org.bukkit.World world : plugin.getServer().getWorlds()) {
+            for (org.bukkit.Chunk chunk : world.getLoadedChunks()) {
+                for (org.bukkit.block.BlockState state : chunk.getTileEntities()) {
+                    if (state instanceof org.bukkit.block.TileState tileState) {
+                        String blockCrateName = tileState.getPersistentDataContainer()
+                            .get(crateKey, PersistentDataType.STRING);
+
+                        if (crateName.equals(blockCrateName)) {
+                            crateLocations.get(world.getName()).add(state.getLocation());
                         }
-                    } catch (Exception e) {
                     }
                 }
             }
-        } catch (Exception e) {
-            plugin.getLogger().warning("Error while removing crate blocks: " + e.getMessage());
+        }
+
+        for (Map.Entry<String, Set<org.bukkit.Location>> entry : crateLocations.entrySet()) {
+            org.bukkit.World world = plugin.getServer().getWorld(entry.getKey());
+            if (world != null) {
+                for (org.bukkit.Location loc : entry.getValue()) {
+                    org.bukkit.block.Block block = world.getBlockAt(loc);
+                    if (block.getState() instanceof org.bukkit.block.TileState tileState) {
+                        tileState.getPersistentDataContainer().remove(crateKey);
+                        tileState.update();
+                    }
+                }
+            }
         }
     }
 
     public Set<String> getCrateNames() {
-        return new HashSet<>(crates.keySet());
+        return Set.copyOf(crates.keySet());
     }
 
     public void saveCrate(Crate crate) {
@@ -177,68 +182,63 @@ public class CrateManager {
     }
 
     private void saveCrateSync(Crate crate) {
+        final Path file = dataFolder.resolve(crate.getName().toLowerCase() + ".yml");
+        final YamlConfiguration config = new YamlConfiguration();
+
+        populateConfig(config, crate);
+
         try {
-            Path file = dataFolder.resolve(crate.getName().toLowerCase() + ".yml");
-            YamlConfiguration config = new YamlConfiguration();
-
-            config.set("name", crate.getName());
-            config.set("displayItem", optimizeItemStack(crate.getDisplayItem()));
-
-            if (crate.getKeyItem() != null) {
-                config.set("keyItem", optimizeItemStack(crate.getKeyItem()));
-            }
-
-            List<ItemStack> items = crate.getItems();
-            if (!items.isEmpty()) {
-                List<ItemStack> optimizedItems = new ArrayList<>();
-                for (ItemStack item : items) {
-                    optimizedItems.add(optimizeItemStack(item));
-                }
-                config.set("items", optimizedItems);
-            }
-
             config.save(file.toFile());
-
-            fileModificationTimes.put(crate.getName().toLowerCase(), System.currentTimeMillis());
-
         } catch (IOException e) {
-            plugin.getLogger().severe("Failed to save crate " + crate.getName() + ": " + e.getMessage());
+            plugin.getLogger().severe("Failed to save crate %s: %s".formatted(crate.getName(), e.getMessage()));
         }
     }
 
-    private ItemStack optimizeItemStack(ItemStack original) {
-        if (original == null) return null;
+    private void populateConfig(YamlConfiguration config, Crate crate) {
+        config.set("name", crate.getName());
+        config.set("displayItem", crate.getDisplayItem());
 
-        ItemStack optimized = original.clone();
-        ItemMeta meta = optimized.getItemMeta();
+        crate.getKeyItem().ifPresent(keyItem -> config.set("keyItem", keyItem));
 
-        if (meta != null) {
-            if (meta.lore() != null && meta.lore().isEmpty()) {
-                meta.lore(null);
-            }
-
-            if (meta.getPersistentDataContainer().isEmpty()) {
-            }
-
-            optimized.setItemMeta(meta);
+        final List<ItemStack> items = crate.getItems();
+        if (!items.isEmpty()) {
+            config.set("items", items);
         }
-
-        return optimized;
     }
 
     public void saveAll() {
         saveAllPending();
 
-        for (Crate crate : crates.values()) {
-            saveCrateSync(crate);
-        }
+        final List<Crate> cratesToSave = List.copyOf(crates.values());
+        CompletableFuture.runAsync(() ->
+            cratesToSave.parallelStream()
+                .forEach(this::saveCrateSync)
+        ).exceptionally(throwable -> {
+            plugin.getLogger().severe("Failed to save crates in batch: " + throwable.getMessage());
+            return null;
+        });
     }
 
     public void shutdown() {
-        if (autoSaveTask != null) {
-            autoSaveTask.cancel();
+        plugin.getLogger().info("Shutting down CrateManager...");
+
+        final long startTime = System.currentTimeMillis();
+
+        try {
+            Optional.ofNullable(autoSaveTask)
+                    .filter(task -> !task.isCancelled())
+                    .ifPresent(BukkitTask::cancel);
+
+            saveAll();
+
+            final long shutdownTime = System.currentTimeMillis() - startTime;
+            plugin.getLogger().info("CrateManager shutdown completed in {}ms. Saved {} crates."
+                    .formatted(shutdownTime, crates.size()));
+
+        } catch (Exception e) {
+            plugin.getLogger().severe("Critical error during CrateManager shutdown: " + e.getMessage());
+            e.printStackTrace();
         }
-        saveAll();
     }
 
     private void loadCrates() {
@@ -268,10 +268,11 @@ public class CrateManager {
 
                 @SuppressWarnings("unchecked")
                 List<ItemStack> items = (List<ItemStack>) config.getList("items", new ArrayList<>());
-                crate.setItems(items);
+                if (!items.isEmpty()) {
+                    crate.setItems(items);
+                }
 
                 crates.put(crate.getName().toLowerCase(), crate);
-                fileModificationTimes.put(crate.getName().toLowerCase(), System.currentTimeMillis());
             }
         } catch (Exception e) {
             plugin.getLogger().warning("Failed to load crate from " + file.getFileName() + ": " + e.getMessage());

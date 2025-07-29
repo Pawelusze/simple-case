@@ -2,15 +2,13 @@ package pl.polardev.scase.listeners;
 
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.inventory.InventoryHolder;
 import pl.polardev.scase.CasePlugin;
-import pl.polardev.scase.guis.CrateAnimationGUI;
-import pl.polardev.scase.guis.CrateEditGUI;
-import pl.polardev.scase.guis.CrateMainGUI;
-import pl.polardev.scase.guis.CrateOpenGUI;
+import pl.polardev.scase.helpers.GUIHelper;
 
 public class GUIListener implements Listener {
     private final CasePlugin plugin;
@@ -19,53 +17,29 @@ public class GUIListener implements Listener {
         this.plugin = plugin;
     }
 
-    @EventHandler
+    @EventHandler(priority = EventPriority.HIGHEST)
     public void onInventoryClick(InventoryClickEvent event) {
-        if (!(event.getWhoClicked() instanceof Player player)) return;
+        if (!(event.getWhoClicked() instanceof Player)) return;
 
-        InventoryHolder holder = event.getInventory().getHolder();
+        final InventoryHolder holder = event.getInventory().getHolder();
+        if (!GUIHelper.isPluginGUI(holder)) return;
 
-        if (holder instanceof CrateMainGUI gui) {
+        final boolean isTopInventory = event.getRawSlot() < event.getInventory().getSize();
+
+        if (GUIHelper.shouldCancelClick(holder)) {
             event.setCancelled(true);
-            if (event.getRawSlot() < event.getInventory().getSize()) {
-                gui.handleClick(event.getCurrentItem());
-            }
-        } else if (holder instanceof CrateOpenGUI gui) {
-            event.setCancelled(true);
-            if (event.getRawSlot() < event.getInventory().getSize()) {
-                gui.handleClick(event.getRawSlot());
-            }
-        } else if (holder instanceof CrateAnimationGUI gui) {
-            event.setCancelled(true);
-            gui.handleClick(event.getRawSlot());
-        } else if (holder instanceof CrateEditGUI gui) {
-            int slot = event.getRawSlot();
-
-            if (slot >= 0 && slot < 54) {
-                plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
-                    if (!player.getOpenInventory().getTopInventory().equals(gui.getInventory())) return;
-
-                    var item = gui.getInventory().getItem(slot);
-                    if (item == null || item.getType().isAir()) {
-                        gui.handleItemRemove(slot);
-                    } else {
-                        gui.handleItemPlace(slot, item);
-                    }
-                }, 1L);
-            }
         }
+
+        GUIHelper.handleGUIClick(holder, event.getSlot(), event.getCurrentItem(), isTopInventory);
     }
 
-    @EventHandler
+    @EventHandler(priority = EventPriority.MONITOR)
     public void onInventoryClose(InventoryCloseEvent event) {
         if (!(event.getPlayer() instanceof Player)) return;
 
-        InventoryHolder holder = event.getInventory().getHolder();
+        final InventoryHolder holder = event.getInventory().getHolder();
+        if (!GUIHelper.requiresCloseHandling(holder)) return;
 
-        if (holder instanceof CrateEditGUI gui) {
-            gui.autoSave();
-        } else if (holder instanceof CrateAnimationGUI gui) {
-            gui.onClose();
-        }
+        GUIHelper.handleGUIClose(holder);
     }
 }

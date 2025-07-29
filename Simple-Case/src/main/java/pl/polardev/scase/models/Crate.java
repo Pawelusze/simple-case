@@ -1,18 +1,18 @@
 package pl.polardev.scase.models;
 
 import org.bukkit.inventory.ItemStack;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
+import java.util.concurrent.ThreadLocalRandom;
 
 public class Crate {
-    private String name;
+    private final String name;
     private ItemStack displayItem;
     private ItemStack keyItem;
-    private List<ItemStack> items;
+    private final List<ItemStack> items;
 
     public Crate(String name, ItemStack displayItem) {
-        this.name = name;
-        this.displayItem = displayItem.clone();
+        this.name = Objects.requireNonNull(name, "Crate name cannot be null");
+        this.displayItem = Objects.requireNonNull(displayItem, "Display item cannot be null").clone();
         this.items = new ArrayList<>();
     }
 
@@ -25,11 +25,11 @@ public class Crate {
     }
 
     public void setDisplayItem(ItemStack displayItem) {
-        this.displayItem = displayItem.clone();
+        this.displayItem = Objects.requireNonNull(displayItem, "Display item cannot be null").clone();
     }
 
-    public ItemStack getKeyItem() {
-        return keyItem != null ? keyItem.clone() : null;
+    public Optional<ItemStack> getKeyItem() {
+        return Optional.ofNullable(keyItem).map(ItemStack::clone);
     }
 
     public void setKeyItem(ItemStack keyItem) {
@@ -37,34 +37,75 @@ public class Crate {
     }
 
     public List<ItemStack> getItems() {
-        return new ArrayList<>(items);
+        return items.stream()
+                .map(ItemStack::clone)
+                .toList();
     }
 
     public void addItem(ItemStack item) {
-        items.add(item.clone());
+        if (item != null && !item.getType().isAir()) {
+            items.add(item.clone());
+        }
     }
 
-    public void removeItem(int index) {
-        if (index >= 0 && index < items.size()) {
+    public boolean removeItem(int index) {
+        if (isValidIndex(index)) {
             items.remove(index);
+            return true;
         }
+        return false;
     }
 
-    public void setItems(List<ItemStack> items) {
-        this.items = new ArrayList<>();
-        for (ItemStack item : items) {
-            if (item != null) {
-                this.items.add(item.clone());
-            }
-        }
+    public void setItems(Collection<ItemStack> items) {
+        this.items.clear();
+        items.stream()
+                .filter(Objects::nonNull)
+                .filter(item -> !item.getType().isAir())
+                .map(ItemStack::clone)
+                .forEach(this.items::add);
     }
 
     public boolean hasKey() {
         return keyItem != null;
     }
 
-    public ItemStack getRandomItem() {
-        if (items.isEmpty()) return null;
-        return items.get((int) (Math.random() * items.size())).clone();
+    public Optional<ItemStack> getRandomItem() {
+        return items.isEmpty()
+            ? Optional.empty()
+            : Optional.of(items.get(ThreadLocalRandom.current().nextInt(items.size())).clone());
+    }
+
+    public int getItemCount() {
+        return items.size();
+    }
+
+    public boolean isEmpty() {
+        return items.isEmpty();
+    }
+
+    public void clearItems() {
+        items.clear();
+    }
+
+    private boolean isValidIndex(int index) {
+        return index >= 0 && index < items.size();
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (this == obj) return true;
+        if (obj == null || getClass() != obj.getClass()) return false;
+        Crate crate = (Crate) obj;
+        return Objects.equals(name.toLowerCase(), crate.name.toLowerCase());
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(name.toLowerCase());
+    }
+
+    @Override
+    public String toString() {
+        return "Crate{name='%s', itemCount=%d, hasKey=%b}".formatted(name, items.size(), hasKey());
     }
 }

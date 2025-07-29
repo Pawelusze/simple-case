@@ -1,242 +1,186 @@
 package pl.polardev.scase.guis;
 
-import net.kyori.adventure.text.minimessage.MiniMessage;
-import net.kyori.adventure.title.Title;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
-import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scheduler.BukkitTask;
 import pl.polardev.scase.CasePlugin;
+import pl.polardev.scase.helpers.ChatHelper;
 import pl.polardev.scase.models.Crate;
 import org.jetbrains.annotations.NotNull;
 
-import java.time.Duration;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.stream.IntStream;
 
 public class CrateAnimationGUI implements InventoryHolder {
     private final CasePlugin plugin;
     private final Player player;
     private final Crate crate;
     private final Inventory inventory;
-    private final MiniMessage mm = MiniMessage.miniMessage();
 
-    private final List<ItemStack> rouletteItems;
-    private final ItemStack winningItem;
+    private final List<ItemStack> animationItems;
+    private final ItemStack finalItem;
     private BukkitTask animationTask;
     private int currentPosition = 0;
-    private int animationTicks = 0;
+    private long animationSpeed = 5L;
+    private int ticksElapsed = 0;
     private boolean animationRunning = false;
 
-    private static final int TOTAL_ANIMATION_TICKS = 140;
-    private static final int[] DISPLAY_SLOTS = {10, 11, 12, 13, 14, 15, 16};
-    private static final int ROULETTE_SIZE = 50;
+    private static final int ANIMATION_ITEMS_COUNT = 200;
+    private static final int ANIMATION_DURATION_TICKS = 140;
+    private static final int ANIMATION_ROW_START = 9;
+    private static final int ANIMATION_ROW_SIZE = 9;
+    private static final int FINAL_ITEM_SLOT = 13;
+    private static final int AUTO_CLOSE_DELAY_TICKS = 60;
 
     public CrateAnimationGUI(CasePlugin plugin, Player player, Crate crate) {
         this.plugin = plugin;
         this.player = player;
         this.crate = crate;
-        this.inventory = Bukkit.createInventory(this, 27, mm.deserialize("<gold>✨ " + crate.getName() + " - Roulette"));
-
-        this.winningItem = crate.getRandomItem();
-        this.rouletteItems = prepareRouletteItems();
-
-        setupInventory();
+        this.inventory = Bukkit.createInventory(this, 27, ChatHelper.deserialize("<gold>Otwieranie z animacją: " + crate.getName()));
+        this.animationItems = generateAnimationItems();
+        this.finalItem = crate.getRandomItem().orElse(new ItemStack(Material.STONE));
     }
 
-    private List<ItemStack> prepareRouletteItems() {
-        List<ItemStack> items = new ArrayList<>(ROULETTE_SIZE);
-        List<ItemStack> crateItems = crate.getItems();
+    private List<ItemStack> generateAnimationItems() {
+        final List<ItemStack> crateItems = crate.getItems();
 
         if (crateItems.isEmpty()) {
-            ItemStack placeholder = new ItemStack(Material.BARRIER);
-            ItemMeta meta = placeholder.getItemMeta();
-            meta.displayName(mm.deserialize("<red>Pusta skrzynka"));
-            placeholder.setItemMeta(meta);
-            for (int i = 0; i < ROULETTE_SIZE; i++) {
-                items.add(placeholder);
-            }
-            return items;
+            return List.of(new ItemStack(Material.STONE));
         }
 
-        ThreadLocalRandom random = ThreadLocalRandom.current();
-        for (int i = 0; i < ROULETTE_SIZE; i++) {
-            items.add(crateItems.get(random.nextInt(crateItems.size())).clone());
-        }
-
-        int winningPosition = 38;
-        items.set(winningPosition, winningItem.clone());
-
-        return items;
-    }
-
-    private void setupInventory() {
-        ItemStack glass = new ItemStack(Material.GRAY_STAINED_GLASS_PANE);
-        ItemMeta glassMeta = glass.getItemMeta();
-        glassMeta.displayName(mm.deserialize(" "));
-        glass.setItemMeta(glassMeta);
-
-        for (int i = 0; i < 27; i++) {
-            if (!isDisplaySlot(i)) {
-                inventory.setItem(i, glass);
-            }
-        }
-
-        ItemStack arrow = new ItemStack(Material.SPECTRAL_ARROW);
-        ItemMeta arrowMeta = arrow.getItemMeta();
-        arrowMeta.displayName(mm.deserialize("<yellow>⬇ WINNER ⬇"));
-        arrowMeta.lore(List.of(mm.deserialize("<gray>Przedmiot zatrzyma się tutaj")));
-        arrow.setItemMeta(arrowMeta);
-        inventory.setItem(4, arrow);
-
-        updateDisplaySlots();
-    }
-
-    private boolean isDisplaySlot(int slot) {
-        for (int displaySlot : DISPLAY_SLOTS) {
-            if (slot == displaySlot) return true;
-        }
-        return false;
-    }
-
-    private void updateDisplaySlots() {
-        for (int i = 0; i < DISPLAY_SLOTS.length; i++) {
-            int itemIndex = (currentPosition + i) % ROULETTE_SIZE;
-            inventory.setItem(DISPLAY_SLOTS[i], rouletteItems.get(itemIndex));
-        }
+        return IntStream.range(0, ANIMATION_ITEMS_COUNT)
+                .mapToObj(i -> crateItems.get(ThreadLocalRandom.current().nextInt(crateItems.size())))
+                .toList();
     }
 
     public void open() {
-        if (!consumeKey()) {
-            player.sendMessage(mm.deserialize("<red>Brak klucza! Potrzebujesz odpowiedniego klucza aby otworzyć tę skrzynkę."));
-            return;
-        }
-
         player.openInventory(inventory);
+        consumeKey();
         startAnimation();
     }
 
-    private boolean consumeKey() {
-        ItemStack requiredKey = crate.getKeyItem();
-        if (requiredKey == null) return true;
-
-        ItemStack[] contents = player.getInventory().getContents();
-        for (int i = 0; i < contents.length; i++) {
-            ItemStack item = contents[i];
-            if (item != null && item.isSimilar(requiredKey)) {
-                if (item.getAmount() > 1) {
-                    item.setAmount(item.getAmount() - 1);
-                } else {
-                    player.getInventory().setItem(i, null);
-                }
-                return true;
-            }
-        }
-        return false;
+    private void consumeKey() {
+        crate.getKeyItem().ifPresent(requiredKey -> {
+            Arrays.stream(player.getInventory().getContents())
+                .filter(item -> item != null && item.isSimilar(requiredKey))
+                .findFirst()
+                .ifPresent(matchingKey -> {
+                    if (matchingKey.getAmount() > 1) {
+                        matchingKey.setAmount(matchingKey.getAmount() - 1);
+                    } else {
+                        player.getInventory().remove(matchingKey);
+                    }
+                });
+        });
     }
 
     private void startAnimation() {
         if (animationRunning) return;
-
         animationRunning = true;
-        animationTicks = 0;
-        currentPosition = 0;
-
-        player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 0.8f, 0.8f);
 
         animationTask = new BukkitRunnable() {
             @Override
             public void run() {
-                if (animationTicks >= TOTAL_ANIMATION_TICKS) {
+                ticksElapsed++;
+
+                if (ticksElapsed >= ANIMATION_DURATION_TICKS) {
                     finishAnimation();
                     return;
                 }
 
-                int speed = calculateAnimationSpeed();
-
-                if (animationTicks % speed == 0) {
-                    currentPosition++;
-                    updateDisplaySlots();
-
-                    if (animationTicks < TOTAL_ANIMATION_TICKS - 28) {
-                        float pitch = 0.5f + (animationTicks / (float)TOTAL_ANIMATION_TICKS);
-                        player.playSound(player.getLocation(), Sound.UI_BUTTON_CLICK, 0.3f, pitch);
-                    }
-                }
-
-                animationTicks++;
+                updateAnimationSpeed();
+                updateInventoryDisplay();
+                currentPosition = (currentPosition + 1) % animationItems.size();
             }
-        }.runTaskTimer(plugin, 0L, 1L);
+        }.runTaskTimer(plugin, 0L, getInitialAnimationSpeed());
     }
 
-    private int calculateAnimationSpeed() {
-        float progress = animationTicks / (float)TOTAL_ANIMATION_TICKS;
+    private void updateAnimationSpeed() {
+        final long newSpeed = switch (ticksElapsed / 20) {
+            case 0, 1 -> 3L;        // 0-39 ticks
+            case 2, 3 -> 5L;        // 40-79 ticks
+            case 4 -> 8L;           // 80-99 ticks
+            case 5 -> 12L;          // 100-119 ticks
+            default -> 20L;         // 120+ ticks
+        };
 
-        if (progress < 0.3f) return 2;
-        if (progress < 0.6f) return 4;
-        if (progress < 0.85f) return 8;
-        return 15;
+        if (animationSpeed != newSpeed) {
+            animationSpeed = newSpeed;
+            restartAnimationWithNewSpeed();
+        }
+    }
+
+    private long getInitialAnimationSpeed() {
+        return 3L;
+    }
+
+    private void restartAnimationWithNewSpeed() {
+        if (animationTask != null) {
+            animationTask.cancel();
+        }
+
+        animationTask = new BukkitRunnable() {
+            @Override
+            public void run() {
+                ticksElapsed++;
+
+                if (ticksElapsed >= ANIMATION_DURATION_TICKS) {
+                    finishAnimation();
+                    return;
+                }
+
+                updateAnimationSpeed();
+                updateInventoryDisplay();
+                currentPosition = (currentPosition + 1) % animationItems.size();
+            }
+        }.runTaskTimer(plugin, 0L, animationSpeed);
+    }
+
+    private void updateInventoryDisplay() {
+        inventory.clear();
+
+        IntStream.range(0, ANIMATION_ROW_SIZE)
+                .forEach(slot -> {
+                    final int itemIndex = (currentPosition + slot) % animationItems.size();
+                    inventory.setItem(ANIMATION_ROW_START + slot, animationItems.get(itemIndex));
+                });
     }
 
     private void finishAnimation() {
-        if (animationTask != null) {
-            animationTask.cancel();
-            animationTask = null;
-        }
+        Optional.ofNullable(animationTask).ifPresent(BukkitTask::cancel);
 
-        animationRunning = false;
+        inventory.clear();
+        inventory.setItem(FINAL_ITEM_SLOT, finalItem);
 
-        currentPosition = 35;
-        updateDisplaySlots();
-
-        player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1.0f, 1.2f);
-        addItemToInventory(winningItem);
-        showWinTitle();
+        giveItemToPlayer(finalItem.clone());
 
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
             if (player.getOpenInventory().getTopInventory().equals(inventory)) {
                 player.closeInventory();
             }
-        }, 60L);
+        }, AUTO_CLOSE_DELAY_TICKS);
+
+        animationRunning = false;
     }
 
-    private void addItemToInventory(ItemStack item) {
-        Map<Integer, ItemStack> leftover = player.getInventory().addItem(item.clone());
-        if (!leftover.isEmpty()) {
-            for (ItemStack leftoverItem : leftover.values()) {
-                player.getWorld().dropItemNaturally(player.getLocation(), leftoverItem);
-            }
-        }
-    }
+    private void giveItemToPlayer(ItemStack item) {
+        final var leftover = player.getInventory().addItem(item);
 
-    private void showWinTitle() {
-        String itemName = winningItem.hasItemMeta() && winningItem.getItemMeta().hasDisplayName()
-            ? winningItem.getItemMeta().getDisplayName()
-            : winningItem.getType().name();
-
-        player.showTitle(Title.title(
-            mm.deserialize("<gold>✨ WYGRAŁEŚ! ✨"),
-            mm.deserialize("<green>" + itemName),
-            Title.Times.times(Duration.ofMillis(500), Duration.ofSeconds(3), Duration.ofMillis(500))
-        ));
-    }
-
-    public void handleClick(int slot) {
+        leftover.values()
+                .forEach(leftoverItem ->
+                    player.getWorld().dropItemNaturally(player.getLocation(), leftoverItem)
+                );
     }
 
     public void onClose() {
-        if (animationTask != null && !animationTask.isCancelled()) {
-            animationTask.cancel();
-            animationTask = null;
-        }
+        Optional.ofNullable(animationTask).ifPresent(BukkitTask::cancel);
+        animationRunning = false;
     }
 
     @Override
