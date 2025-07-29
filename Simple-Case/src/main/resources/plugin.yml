@@ -1,17 +1,18 @@
 name: Simple-Case
-version: '1.0-INDEV'
+version: 1.0-INDEV
 main: pl.polardev.scase.CasePlugin
-api-version: '1.21'
-authors: [ Pawelusz ]
+api-version: 1.21
+author: PolarDev
+description: Simple crate plugin for Minecraft servers
 
 commands:
   admincase:
-    description: Manage crates
-    usage: /admincase {create|edit|delete|setkey|givekey} [args]
+    description: Admin commands for managing crates
+    usage: /admincase <create|edit|delete|setkey|givekey>
     permission: simplecase.admin
-    tab-complete: true
+    aliases: [ac, case]
 
 permissions:
   simplecase.admin:
-    description: Access to crate administration
+    description: Allows access to admin crate commands
     default: op
